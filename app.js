@@ -7,19 +7,20 @@
 
 // ── Konfiguracja ─────────────────────────────────────────────
 const CONFIG = {
-    apiUrl: 'https://api.github.com/events?per_page=100',
-    fetchInterval: 30,      // Sekundy między skanami API
-    streamInterval: 1800,   // Ms między emisją kolejnego wiersza z bufora
+    apiUrl: 'https://api.github.com/events?per_page=300',
+    fetchInterval: 10,       // Sekundy między skanami API
+    maxStoredEvents: 10000, // Maksimalna liczba zdarzeń w pamięci
+    pagesPerFetch: 3,       // Pobieraj 3 strony × 300 = 900 eventów
+    githubToken: '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',
 };
 
 // ── Stan aplikacji ───────────────────────────────────────────
 const state = {
-    seenIds: new Set(),
-    buffer: [],
+    seenIds: new Map(),  // Map: id -> timestamp (aby śledzić wiek wpisu)
     totalItems: 0,
     countdown: CONFIG.fetchInterval,
-    streamTimer: null,
     fetchTimer: null,
+    lastFetchSize: 0,   // Ile nowych eventów w ostatnim pobraniu
 };
 
 // ── Elementy DOM ─────────────────────────────────────────────
@@ -88,35 +89,62 @@ function setLastAction(msg) {
     DOM.lastActionLog().textContent = msg;
 }
 
-// ── Pobieranie danych do bufora ──────────────────────────────
+// ── Pobieranie danych i emisja natychmiast ──────────────────
 async function fetchToBuffer() {
     setSyncStatus('scanning');
 
     try {
-        const response = await fetch(CONFIG.apiUrl);
+        // Wymuś limit 10000 zdarzeń — usuń najstarsze jeśli przekroczony
+        enforceMaxEvents();
 
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+        // Pobierz wiele stron naraz (1-3 = 900 eventów)
+        const pageRequests = [];
+        for (let page = 1; page <= CONFIG.pagesPerFetch; page++) {
+            const url = `${CONFIG.apiUrl}&page=${page}`;
+            pageRequests.push(
+                fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${CONFIG.githubToken}`
+                    }
+                })
+                    .then(r => r.ok ? r.json() : [])
+                    .catch(() => [])  // Jeśli błąd, zwróć pustą tablicę
+            );
         }
 
-        const data = await response.json();
+        const allPages = await Promise.all(pageRequests);
+        let allEvents = [];
+        allPages.forEach(page => {
+            if (Array.isArray(page)) {
+                allEvents = allEvents.concat(page);
+            }
+        });
 
-        // Odwróć kolejność, by najstarsze z paczki trafiły do bufora pierwsze
-        const reversed = [...data].reverse();
+        // Deduplikuj po ID i odwróć kolejność (najstarsze z paczki pierwsze)
+        const uniqueIds = new Set();
+        const dedupedEvents = [];
+        for (let event of allEvents.reverse()) {
+            if (!uniqueIds.has(event.id)) {
+                uniqueIds.add(event.id);
+                dedupedEvents.push(event);
+            }
+        }
 
         let added = 0;
-        reversed.forEach(event => {
+        dedupedEvents.forEach(event => {
             if (!state.seenIds.has(event.id)) {
-                state.buffer.push(event);
-                state.seenIds.add(event.id);
+                state.seenIds.set(event.id, Date.now());  // Pamiętaj czas pobrania
+                renderRow(event);  // Renderuj od razu, bez bufora
                 added++;
             }
         });
 
+        state.lastFetchSize = added;
+
         setLastAction(
             added > 0
-                ? `[${new Date().toLocaleTimeString('pl-PL')}] Zbuforowano ${added} nowych zdarzeń`
-                : `[${new Date().toLocaleTimeString('pl-PL')}] Brak nowych zdarzeń — baza aktualna`
+                ? `[${new Date().toLocaleTimeString('pl-PL')}] Dodano ${added} nowych zdarzeń (${state.seenIds.size} w cache)`
+                : `[${new Date().toLocaleTimeString('pl-PL')}] Brak nowych zdarzeń — baza aktualna (${state.seenIds.size} w cache)`
         );
 
         setSyncStatus('ok');
@@ -133,16 +161,7 @@ async function fetchToBuffer() {
     }
 }
 
-// ── Strumień emisji (bufor → tabela) ─────────────────────────
-function startStreamEmitter() {
-    state.streamTimer = setInterval(() => {
-        if (state.buffer.length === 0) return;
-
-        const event = state.buffer.shift();
-        renderRow(event);
-        updateBufferCount();
-    }, CONFIG.streamInterval);
-}
+// ── [Usunięto] Strumień emisji — teraz renderowanie natychmiast ──
 
 // ── Renderowanie wiersza ─────────────────────────────────────
 function renderRow(event) {
@@ -201,7 +220,36 @@ function updateTotalCount() {
 }
 
 function updateBufferCount() {
-    DOM.bufferCount().textContent = state.buffer.length.toLocaleString('pl-PL');
+    DOM.bufferCount().textContent = state.seenIds.size.toLocaleString('pl-PL');
+}
+
+// ── Czyszczenie starych ID — limit do 10000 zdarzeń ──────────
+function enforceMaxEvents() {
+    // Jeśli przekroczyliśmy 10000, usuń najstarsze zdarzenia
+    if (state.seenIds.size > CONFIG.maxStoredEvents) {
+        // Konwertuj Map na Array, sortuj po timestamp, usuń najstarsze
+        const entries = Array.from(state.seenIds.entries());
+        entries.sort((a, b) => a[1] - b[1]);
+        
+        const toDelete = entries.length - CONFIG.maxStoredEvents;
+        const rows = DOM.streamBody().querySelectorAll('tr');
+        let rowsToRemove = 0;
+
+        // Usuń ze starej części tabeli (od tyłu)
+        for (let i = rows.length - 1; i >= 0 && rowsToRemove < toDelete; i--) {
+            rows[i].remove();
+            rowsToRemove++;
+        }
+
+        // Usuń ze seenIds
+        for (let i = 0; i < toDelete; i++) {
+            state.seenIds.delete(entries[i][0]);
+        }
+
+        // Zsynchronizuj totalItems
+        state.totalItems = DOM.streamBody().querySelectorAll('tr').length;
+        updateTotalCount();
+    }
 }
 
 // ── Wyszukiwarka ─────────────────────────────────────────────
@@ -252,7 +300,6 @@ function init() {
     startClock();
     initSearch();
     startCountdown();
-    startStreamEmitter();
     fetchToBuffer(); // Pierwsze pobranie od razu
 }
 
