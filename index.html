@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOC Terminal | Krajowy Rejestr Operacji Sieciowych</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=JetBrains+Mono:wght@300;400;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="p-6 flex flex-col h-screen">
+
+    <div class="max-w-7xl mx-auto w-full flex flex-col h-full gap-6">
+
+        <!-- NAGŁÓWEK -->
+        <header class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-slate-800 pb-6">
+            <div>
+                <div class="flex items-center gap-3 mb-1">
+                    <span class="live-dot"></span>
+                    <span class="live-dot-ring"></span>
+                    <h1 class="text-2xl font-bold tracking-tighter text-white uppercase">
+                        Krajowy Rejestr Operacji Sieciowych
+                    </h1>
+                </div>
+                <p class="text-slate-500 text-xs uppercase tracking-widest font-bold pl-6">
+                    Węzeł: PL-WAW-SOC-01 &nbsp;|&nbsp; Tryb: Analiza Przyrostowa (Delta) &nbsp;|&nbsp; Protokół: HTTPS/TLS 1.3
+                </p>
+            </div>
+            <div class="flex gap-6 items-center shrink-0">
+                <div class="stat-pill">
+                    <p class="stat-label">W kolejce (Bufor)</p>
+                    <p id="bufferCount" class="stat-value text-sky-400">0</p>
+                </div>
+                <div class="divider-v"></div>
+                <div class="stat-pill">
+                    <p class="stat-label">Suma zdarzeń</p>
+                    <p id="totalCount" class="stat-value text-white">0</p>
+                </div>
+                <div class="divider-v"></div>
+                <div class="stat-pill text-right">
+                    <p class="stat-label">Czas systemowy</p>
+                    <p id="clock" class="stat-value mono text-white">00:00:00</p>
+                </div>
+            </div>
+        </header>
+
+        <!-- PASEK NARZĘDZI -->
+        <div class="flex flex-col md:flex-row gap-4 items-stretch">
+            <div class="relative flex-grow">
+                <span class="search-icon">⌕</span>
+                <input
+                    type="text"
+                    id="mainSearch"
+                    placeholder="Filtruj strumień na żywo: użytkownik, typ operacji, repozytorium..."
+                    class="search-input"
+                    autocomplete="off"
+                    spellcheck="false"
+                >
+            </div>
+            <div class="status-bar">
+                <div class="flex items-center gap-2">
+                    <span id="syncDot" class="sync-dot sync-ok"></span>
+                    <span id="syncLabel" class="text-xs uppercase font-bold text-slate-400">Monitorowanie</span>
+                </div>
+                <div class="divider-v"></div>
+                <div class="text-right">
+                    <p class="stat-label">Następny skan</p>
+                    <p id="countdown" class="text-sky-400 font-bold mono text-sm">30s</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- TABELA ZDARZEŃ -->
+        <div class="table-wrapper flex-grow flex flex-col overflow-hidden">
+            <div class="table-header-row">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="text-slate-500 text-xs uppercase font-bold tracking-widest">
+                            <th class="p-4 w-48">Operator</th>
+                            <th class="p-4 w-36">Typ Operacji</th>
+                            <th class="p-4">Zasób (Repozytorium)</th>
+                            <th class="p-4 text-right w-32">Sygnatura</th>
+                        </tr>
+                    </thead>
+                </table>
+            </div>
+            <div class="table-scroll-area flex-grow overflow-y-auto" id="tableScrollArea">
+                <table class="w-full text-left border-collapse">
+                    <tbody id="streamBody" class="text-sm divide-y divide-slate-800/50">
+                    </tbody>
+                </table>
+                <div id="emptyState" class="empty-state hidden">
+                    <p class="text-2xl mb-2 opacity-30">◎</p>
+                    <p class="font-bold">Brak wyników</p>
+                    <p class="text-xs mt-1 opacity-60">Żadne zdarzenie nie pasuje do podanego filtra.</p>
+                </div>
+                <div id="initialState" class="empty-state">
+                    <span class="init-spinner"></span>
+                    <p class="font-bold mt-4">Nawiązywanie połączenia z węzłem...</p>
+                    <p class="text-xs mt-1 opacity-60">Trwa pobieranie pierwszej paczki danych.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- STOPKA -->
+        <footer class="flex justify-between items-center text-xs text-slate-600 font-bold uppercase mono border-t border-slate-800 pt-4">
+            <div class="flex gap-6">
+                <span>Szyfrowanie: <span class="text-slate-400">AES-256-GCM</span></span>
+                <span>Źródło: <span class="text-slate-400">api.github.com/events</span></span>
+            </div>
+            <div id="lastActionLog" class="italic text-sky-700">Oczekiwanie na dane...</div>
+        </footer>
+
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
